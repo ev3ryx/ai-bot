@@ -5,8 +5,7 @@ const {
   SlashCommandBuilder,
   REST,
   Routes,
-  EmbedBuilder,
-  MessageFlags // Changed from InteractionResponseFlags
+  MessageFlags // Removed EmbedBuilder
 } = require("discord.js");
 const Groq = require("groq-sdk");
 const { QuickDB } = require("quick.db");
@@ -69,31 +68,25 @@ const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
   }
 })();
 
-// ================= SAFE SEND =================
+// ================= SAFE SEND (PLAIN TEXT) =================
 async function sendAIReply(msg, reply) {
   try {
     if (!reply || typeof reply !== "string") {
       return msg.reply("⚠️ Invalid AI response.");
     }
 
-    // Remove mass mentions for safety
+    // Filter out mass pings
     const cleanReply = reply.replace(/@everyone|@here/g, "");
 
+    // Discord has a 2000 character limit per message
     const chunks = [];
     for (let i = 0; i < cleanReply.length; i += 1900) {
       chunks.push(cleanReply.slice(i, i + 1900));
     }
 
-    for (let i = 0; i < chunks.length; i++) {
-      const embed = new EmbedBuilder()
-        .setColor(0x2b2d31)
-        .setAuthor({ name: "🤖 AI Response" })
-        .setDescription(chunks[i])
-        .setFooter({
-          text: `Requested by ${msg.author.username} • Part ${i + 1}/${chunks.length}`
-        });
-
-      await msg.reply({ embeds: [embed] });
+    for (const chunk of chunks) {
+      // Sending as standard text instead of an Embed
+      await msg.reply({ content: chunk });
     }
   } catch (err) {
     console.error("SEND ERROR:", err);
@@ -107,7 +100,6 @@ client.on("interactionCreate", async i => {
 
   const gid = i.guildId;
 
-  // Modern way to send ephemeral messages: flags: [MessageFlags.Ephemeral]
   if (i.commandName === "setai") {
     await db.set(`ai_prompt_${gid}`, i.options.getString("prompt"));
     return i.reply({ content: "✅ AI personality saved", flags: [MessageFlags.Ephemeral] });
@@ -138,7 +130,6 @@ client.on("messageCreate", async msg => {
   if (msg.channel.id !== channelId) return;
   if (!msg.content) return;
 
-  // cooldown
   if (cooldown.has(msg.author.id)) return;
   cooldown.set(msg.author.id, true);
   setTimeout(() => cooldown.delete(msg.author.id), 4000);
@@ -157,8 +148,7 @@ client.on("messageCreate", async msg => {
     await msg.channel.sendTyping();
 
     const chat = await groq.chat.completions.create({
-      // Updated to a valid, non-decommissioned model
-      model: "llama-3.3-70b-versatile", 
+      model: "llama-3.3-70b-versatile", // Using a current supported model
       messages: [
         { role: "system", content: systemPrompt },
         ...memory
@@ -176,7 +166,7 @@ client.on("messageCreate", async msg => {
 
   } catch (err) {
     console.error("AI ERROR:", err.message);
-    msg.reply("❌ AI failed. The model might be offline or the API key is invalid.");
+    msg.reply("❌ AI failed. The model might be offline.");
   }
 });
 
