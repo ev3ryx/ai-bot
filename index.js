@@ -5,7 +5,9 @@ const {
   SlashCommandBuilder,
   REST,
   Routes,
-  EmbedBuilder
+  EmbedBuilder,
+  InteractionResponseType,
+  InteractionResponseFlags
 } = require("discord.js");
 const Groq = require("groq-sdk");
 const { QuickDB } = require("quick.db");
@@ -23,36 +25,35 @@ const client = new Client({
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const cooldown = new Map();
 
-
 // ================= COMMANDS =================
 const commands = [
   new SlashCommandBuilder()
     .setName("setai")
-    .setDescription("Set AI personality") // ✅ fixed
+    .setDescription("Set AI personality")
     .addStringOption(option =>
       option
         .setName("prompt")
-        .setDescription("Enter AI personality prompt") // ✅ fixed
+        .setDescription("Enter AI personality prompt")
         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("setaichannel")
-    .setDescription("Set AI auto reply channel") // ✅ fixed
+    .setDescription("Set AI auto reply channel")
     .addChannelOption(option =>
       option
         .setName("channel")
-        .setDescription("Select channel for AI replies") // ✅ fixed
+        .setDescription("Select channel for AI replies")
         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("removeaichannel")
-    .setDescription("Disable AI channel"), // ✅ fixed
+    .setDescription("Disable AI channel"),
 
   new SlashCommandBuilder()
     .setName("resetai")
-    .setDescription("Reset AI memory") // ✅ fixed
+    .setDescription("Reset AI memory")
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
@@ -68,7 +69,6 @@ const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
     console.error(err);
   }
 })();
-
 
 // ================= SAFE SEND =================
 async function sendAIReply(msg, reply) {
@@ -95,13 +95,11 @@ async function sendAIReply(msg, reply) {
 
       await msg.reply({ embeds: [embed] });
     }
-
   } catch (err) {
     console.error("SEND ERROR:", err);
     msg.reply("❌ Failed to send message.");
   }
 }
-
 
 // ================= COMMAND HANDLER =================
 client.on("interactionCreate", async i => {
@@ -111,25 +109,24 @@ client.on("interactionCreate", async i => {
 
   if (i.commandName === "setai") {
     await db.set(`ai_prompt_${gid}`, i.options.getString("prompt"));
-    return i.reply({ content: "✅ AI personality saved", ephemeral: true });
+    return i.reply({ content: "✅ AI personality saved", flags: InteractionResponseFlags.Ephemeral });
   }
 
   if (i.commandName === "setaichannel") {
     await db.set(`ai_channel_${gid}`, i.options.getChannel("channel").id);
-    return i.reply({ content: "📢 AI channel set", ephemeral: true });
+    return i.reply({ content: "📢 AI channel set", flags: InteractionResponseFlags.Ephemeral });
   }
 
   if (i.commandName === "removeaichannel") {
     await db.delete(`ai_channel_${gid}`);
-    return i.reply({ content: "❌ Removed AI channel", ephemeral: true });
+    return i.reply({ content: "❌ Removed AI channel", flags: InteractionResponseFlags.Ephemeral });
   }
 
   if (i.commandName === "resetai") {
     await db.delete(`ai_memory_${gid}`);
-    return i.reply({ content: "🧠 Memory reset", ephemeral: true });
+    return i.reply({ content: "🧠 Memory reset", flags: InteractionResponseFlags.Ephemeral });
   }
 });
-
 
 // ================= AI SYSTEM =================
 client.on("messageCreate", async msg => {
@@ -153,13 +150,13 @@ client.on("messageCreate", async msg => {
   if (!Array.isArray(memory)) memory = [];
 
   memory.push({ role: "user", content: msg.content });
-  if (memory.length > 6) memory.shift(); // 🔒 limit memory for stability
+  if (memory.length > 6) memory.shift(); // limit memory for stability
 
   try {
     await msg.channel.sendTyping();
 
     const chat = await groq.chat.completions.create({
-      model: "llama3-8b-8192", // 🔥 stable model
+      model: "mixtral-8x7b-32768", // ✅ working model
       messages: [
         { role: "system", content: systemPrompt },
         ...memory
@@ -180,7 +177,6 @@ client.on("messageCreate", async msg => {
     msg.reply("❌ AI failed. Check logs.");
   }
 });
-
 
 // ================= LOGIN =================
 client.login(process.env.TOKEN);
