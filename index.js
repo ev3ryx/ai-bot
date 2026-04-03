@@ -6,8 +6,7 @@ const {
   REST,
   Routes,
   EmbedBuilder,
-  InteractionResponseType,
-  InteractionResponseFlags
+  MessageFlags // Changed from InteractionResponseFlags
 } = require("discord.js");
 const Groq = require("groq-sdk");
 const { QuickDB } = require("quick.db");
@@ -77,11 +76,12 @@ async function sendAIReply(msg, reply) {
       return msg.reply("⚠️ Invalid AI response.");
     }
 
-    reply = reply.replace(/@everyone|@here/g, "");
+    // Remove mass mentions for safety
+    const cleanReply = reply.replace(/@everyone|@here/g, "");
 
     const chunks = [];
-    for (let i = 0; i < reply.length; i += 1900) {
-      chunks.push(reply.slice(i, i + 1900));
+    for (let i = 0; i < cleanReply.length; i += 1900) {
+      chunks.push(cleanReply.slice(i, i + 1900));
     }
 
     for (let i = 0; i < chunks.length; i++) {
@@ -107,24 +107,25 @@ client.on("interactionCreate", async i => {
 
   const gid = i.guildId;
 
+  // Modern way to send ephemeral messages: flags: [MessageFlags.Ephemeral]
   if (i.commandName === "setai") {
     await db.set(`ai_prompt_${gid}`, i.options.getString("prompt"));
-    return i.reply({ content: "✅ AI personality saved", flags: InteractionResponseFlags.Ephemeral });
+    return i.reply({ content: "✅ AI personality saved", flags: [MessageFlags.Ephemeral] });
   }
 
   if (i.commandName === "setaichannel") {
     await db.set(`ai_channel_${gid}`, i.options.getChannel("channel").id);
-    return i.reply({ content: "📢 AI channel set", flags: InteractionResponseFlags.Ephemeral });
+    return i.reply({ content: "📢 AI channel set", flags: [MessageFlags.Ephemeral] });
   }
 
   if (i.commandName === "removeaichannel") {
     await db.delete(`ai_channel_${gid}`);
-    return i.reply({ content: "❌ Removed AI channel", flags: InteractionResponseFlags.Ephemeral });
+    return i.reply({ content: "❌ Removed AI channel", flags: [MessageFlags.Ephemeral] });
   }
 
   if (i.commandName === "resetai") {
     await db.delete(`ai_memory_${gid}`);
-    return i.reply({ content: "🧠 Memory reset", flags: InteractionResponseFlags.Ephemeral });
+    return i.reply({ content: "🧠 Memory reset", flags: [MessageFlags.Ephemeral] });
   }
 });
 
@@ -150,13 +151,14 @@ client.on("messageCreate", async msg => {
   if (!Array.isArray(memory)) memory = [];
 
   memory.push({ role: "user", content: msg.content });
-  if (memory.length > 6) memory.shift(); // limit memory for stability
+  if (memory.length > 10) memory.shift(); 
 
   try {
     await msg.channel.sendTyping();
 
     const chat = await groq.chat.completions.create({
-      model: "mixtral-8x7b-32768", // ✅ working model
+      // Updated to a valid, non-decommissioned model
+      model: "llama-3.3-70b-versatile", 
       messages: [
         { role: "system", content: systemPrompt },
         ...memory
@@ -173,8 +175,8 @@ client.on("messageCreate", async msg => {
     await sendAIReply(msg, reply);
 
   } catch (err) {
-    console.error("AI ERROR FULL:", JSON.stringify(err, null, 2));
-    msg.reply("❌ AI failed. Check logs.");
+    console.error("AI ERROR:", err.message);
+    msg.reply("❌ AI failed. The model might be offline or the API key is invalid.");
   }
 });
 
