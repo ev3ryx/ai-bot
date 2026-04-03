@@ -7,7 +7,6 @@ const {
   Routes,
   EmbedBuilder
 } = require("discord.js");
-
 const Groq = require("groq-sdk");
 const { QuickDB } = require("quick.db");
 
@@ -21,10 +20,7 @@ const client = new Client({
   ]
 });
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY
-});
-
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const cooldown = new Map();
 
 
@@ -32,29 +28,31 @@ const cooldown = new Map();
 const commands = [
   new SlashCommandBuilder()
     .setName("setai")
-    .setDescription("Set AI personality")
-    .addStringOption(o =>
-      o.setName("prompt")
-        .setDescription("AI personality prompt")
+    .setDescription("Set AI personality") // ✅ fixed
+    .addStringOption(option =>
+      option
+        .setName("prompt")
+        .setDescription("Enter AI personality prompt") // ✅ fixed
         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("setaichannel")
-    .setDescription("Set AI auto reply channel")
-    .addChannelOption(o =>
-      o.setName("channel")
-        .setDescription("Channel for AI replies")
+    .setDescription("Set AI auto reply channel") // ✅ fixed
+    .addChannelOption(option =>
+      option
+        .setName("channel")
+        .setDescription("Select channel for AI replies") // ✅ fixed
         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("removeaichannel")
-    .setDescription("Disable AI channel"),
+    .setDescription("Disable AI channel"), // ✅ fixed
 
   new SlashCommandBuilder()
     .setName("resetai")
-    .setDescription("Reset AI memory")
+    .setDescription("Reset AI memory") // ✅ fixed
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
@@ -139,7 +137,6 @@ client.on("messageCreate", async msg => {
 
   const gid = msg.guild.id;
   const channelId = await db.get(`ai_channel_${gid}`);
-
   if (msg.channel.id !== channelId) return;
   if (!msg.content) return;
 
@@ -156,17 +153,19 @@ client.on("messageCreate", async msg => {
   if (!Array.isArray(memory)) memory = [];
 
   memory.push({ role: "user", content: msg.content });
-  if (memory.length > 10) memory.shift();
+  if (memory.length > 6) memory.shift(); // 🔒 limit memory for stability
 
   try {
     await msg.channel.sendTyping();
 
     const chat = await groq.chat.completions.create({
-      model: "mixtral-8x7b-32768",
+      model: "llama3-8b-8192", // 🔥 stable model
       messages: [
         { role: "system", content: systemPrompt },
         ...memory
-      ]
+      ],
+      temperature: 0.7,
+      max_tokens: 1024
     });
 
     const reply = chat.choices?.[0]?.message?.content || "⚠️ No response";
@@ -177,7 +176,7 @@ client.on("messageCreate", async msg => {
     await sendAIReply(msg, reply);
 
   } catch (err) {
-    console.error("AI ERROR:", err.response?.data || err.message || err);
+    console.error("AI ERROR FULL:", JSON.stringify(err, null, 2));
     msg.reply("❌ AI failed. Check logs.");
   }
 });
