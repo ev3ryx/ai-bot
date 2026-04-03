@@ -27,14 +27,15 @@ const groq = new Groq({
 
 const cooldown = new Map();
 
-// 📦 Commands
+
+// ================= COMMANDS =================
 const commands = [
   new SlashCommandBuilder()
     .setName("setai")
     .setDescription("Set AI personality")
     .addStringOption(o =>
       o.setName("prompt")
-        .setDescription("Enter AI personality") // ✅ fixed
+        .setDescription("AI personality prompt")
         .setRequired(true)
     ),
 
@@ -43,7 +44,7 @@ const commands = [
     .setDescription("Set AI auto reply channel")
     .addChannelOption(o =>
       o.setName("channel")
-        .setDescription("Channel for AI replies") // ✅ fixed
+        .setDescription("Channel for AI replies")
         .setRequired(true)
     ),
 
@@ -58,7 +59,6 @@ const commands = [
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-// 🚀 Register
 (async () => {
   try {
     await rest.put(
@@ -71,7 +71,41 @@ const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
   }
 })();
 
-// 🎯 Commands
+
+// ================= SAFE SEND =================
+async function sendAIReply(msg, reply) {
+  try {
+    if (!reply || typeof reply !== "string") {
+      return msg.reply("⚠️ Invalid AI response.");
+    }
+
+    reply = reply.replace(/@everyone|@here/g, "");
+
+    const chunks = [];
+    for (let i = 0; i < reply.length; i += 1900) {
+      chunks.push(reply.slice(i, i + 1900));
+    }
+
+    for (let i = 0; i < chunks.length; i++) {
+      const embed = new EmbedBuilder()
+        .setColor(0x2b2d31)
+        .setAuthor({ name: "🤖 AI Response" })
+        .setDescription(chunks[i])
+        .setFooter({
+          text: `Requested by ${msg.author.username} • Part ${i + 1}/${chunks.length}`
+        });
+
+      await msg.reply({ embeds: [embed] });
+    }
+
+  } catch (err) {
+    console.error("SEND ERROR:", err);
+    msg.reply("❌ Failed to send message.");
+  }
+}
+
+
+// ================= COMMAND HANDLER =================
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
@@ -98,7 +132,8 @@ client.on("interactionCreate", async i => {
   }
 });
 
-// 💬 AI SYSTEM
+
+// ================= AI SYSTEM =================
 client.on("messageCreate", async msg => {
   if (msg.author.bot || !msg.guild) return;
 
@@ -106,52 +141,47 @@ client.on("messageCreate", async msg => {
   const channelId = await db.get(`ai_channel_${gid}`);
 
   if (msg.channel.id !== channelId) return;
+  if (!msg.content) return;
 
-  // ⏱ cooldown
+  // cooldown
   if (cooldown.has(msg.author.id)) return;
   cooldown.set(msg.author.id, true);
-  setTimeout(() => cooldown.delete(msg.author.id), 3000);
+  setTimeout(() => cooldown.delete(msg.author.id), 4000);
 
   const systemPrompt =
     (await db.get(`ai_prompt_${gid}`)) ||
     "You are a smart, friendly Discord AI bot.";
 
-  let memory = (await db.get(`ai_memory_${gid}`)) || [];
+  let memory = await db.get(`ai_memory_${gid}`);
+  if (!Array.isArray(memory)) memory = [];
 
   memory.push({ role: "user", content: msg.content });
   if (memory.length > 10) memory.shift();
 
   try {
-    // ✨ typing effect
     await msg.channel.sendTyping();
 
     const chat = await groq.chat.completions.create({
-      model: "llama3-70b-8192",
+      model: "mixtral-8x7b-32768",
       messages: [
         { role: "system", content: systemPrompt },
         ...memory
       ]
     });
 
-    const reply = chat.choices[0].message.content;
+    const reply = chat.choices?.[0]?.message?.content || "⚠️ No response";
 
     memory.push({ role: "assistant", content: reply });
     await db.set(`ai_memory_${gid}`, memory);
 
-    // 📦 embed reply
-    const embed = new EmbedBuilder()
-      .setColor(0x2b2d31)
-      .setAuthor({ name: "🤖 AI Response" })
-      .setDescription(reply.slice(0, 4000))
-      .setFooter({ text: `Requested by ${msg.author.username}` });
-
-    msg.reply({ embeds: [embed] });
+    await sendAIReply(msg, reply);
 
   } catch (err) {
-    console.error(err);
-    msg.reply("❌ AI error occurred.");
+    console.error("AI ERROR:", err.response?.data || err.message || err);
+    msg.reply("❌ AI failed. Check logs.");
   }
 });
 
-// 🔌 login
+
+// ================= LOGIN =================
 client.login(process.env.TOKEN);
