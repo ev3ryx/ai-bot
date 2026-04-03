@@ -4,7 +4,8 @@ const {
   GatewayIntentBits,
   SlashCommandBuilder,
   REST,
-  Routes
+  Routes,
+  EmbedBuilder
 } = require("discord.js");
 
 const Groq = require("groq-sdk");
@@ -24,23 +25,26 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
-// ⏱ cooldown map
 const cooldown = new Map();
 
-// 📦 Slash Commands
+// 📦 Commands
 const commands = [
   new SlashCommandBuilder()
     .setName("setai")
     .setDescription("Set AI personality")
     .addStringOption(o =>
-      o.setName("prompt").setRequired(true)
+      o.setName("prompt")
+        .setDescription("Enter AI personality") // ✅ fixed
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("setaichannel")
     .setDescription("Set AI auto reply channel")
     .addChannelOption(o =>
-      o.setName("channel").setRequired(true)
+      o.setName("channel")
+        .setDescription("Channel for AI replies") // ✅ fixed
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -54,16 +58,20 @@ const commands = [
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
-// 🚀 Register commands
+// 🚀 Register
 (async () => {
-  await rest.put(
-    Routes.applicationCommands(process.env.CLIENT_ID),
-    { body: commands }
-  );
-  console.log("✅ Commands loaded");
+  try {
+    await rest.put(
+      Routes.applicationCommands(process.env.CLIENT_ID),
+      { body: commands }
+    );
+    console.log("✅ Commands loaded");
+  } catch (err) {
+    console.error(err);
+  }
 })();
 
-// 🎯 Slash handler
+// 🎯 Commands
 client.on("interactionCreate", async i => {
   if (!i.isChatInputCommand()) return;
 
@@ -90,7 +98,7 @@ client.on("interactionCreate", async i => {
   }
 });
 
-// 💬 AI system
+// 💬 AI SYSTEM
 client.on("messageCreate", async msg => {
   if (msg.author.bot || !msg.guild) return;
 
@@ -99,22 +107,24 @@ client.on("messageCreate", async msg => {
 
   if (msg.channel.id !== channelId) return;
 
-  // ⏱ cooldown (3 sec)
+  // ⏱ cooldown
   if (cooldown.has(msg.author.id)) return;
   cooldown.set(msg.author.id, true);
   setTimeout(() => cooldown.delete(msg.author.id), 3000);
 
-  const systemPrompt = await db.get(`ai_prompt_${gid}`) || "You are a helpful Discord bot.";
+  const systemPrompt =
+    (await db.get(`ai_prompt_${gid}`)) ||
+    "You are a smart, friendly Discord AI bot.";
 
-  // 🧠 memory
-  let memory = await db.get(`ai_memory_${gid}`) || [];
+  let memory = (await db.get(`ai_memory_${gid}`)) || [];
 
   memory.push({ role: "user", content: msg.content });
-
-  // limit memory
   if (memory.length > 10) memory.shift();
 
   try {
+    // ✨ typing effect
+    await msg.channel.sendTyping();
+
     const chat = await groq.chat.completions.create({
       model: "llama3-70b-8192",
       messages: [
@@ -128,10 +138,18 @@ client.on("messageCreate", async msg => {
     memory.push({ role: "assistant", content: reply });
     await db.set(`ai_memory_${gid}`, memory);
 
-    msg.reply(reply.slice(0, 2000));
+    // 📦 embed reply
+    const embed = new EmbedBuilder()
+      .setColor(0x2b2d31)
+      .setAuthor({ name: "🤖 AI Response" })
+      .setDescription(reply.slice(0, 4000))
+      .setFooter({ text: `Requested by ${msg.author.username}` });
+
+    msg.reply({ embeds: [embed] });
 
   } catch (err) {
     console.error(err);
+    msg.reply("❌ AI error occurred.");
   }
 });
 
